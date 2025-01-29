@@ -58,12 +58,61 @@
 </head>
 <body>
     <div class="container">
+        
         <h1>Florería Cleo | Ventas vs Objetivos</h1>
         <h2>Objetivos</h2>
 
         <label for="monthlyGoal">Objetivo Mensual:</label>
-        <input type="number" id="monthlyGoal" placeholder="Ingresa el objetivo mensual">
+        <input type="number" id="monthlyGoal" placeholder="Ingresa el objetivo mensual" oninput="updateObjectivesAndChart()">
         
+        <table class="objectives-table">
+            <thead>
+                <tr>
+                    <th>Objetivo</th>
+                    <th>Meta</th>
+                    <th>Progreso</th>
+                    <th>% de Avance</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Mensual</td>
+                    <td id="monthlyGoalDisplay">$0</td>
+                    <td id="monthlyProgress">$0</td>
+                    <td id="monthlyPercentage">0%</td>
+                </tr>
+                <tr>
+                    <td>Semanal</td>
+                    <td id="weeklyGoal">$0</td>
+                    <td id="weeklyProgress">$0</td>
+                    <td id="weeklyPercentage">0%</td>
+                </tr>
+                <tr>
+                    <td>Diario</td>
+                    <td id="dailyGoal">$0</td>
+                    <td id="dailyProgress">$0</td>
+                    <td id="dailyPercentage">0%</td>
+                </tr>
+            </tbody>
+        </table>
+
+        
+
+        <div class="chart-container">
+            <canvas id="progressChart"></canvas>
+        </div>
+        <div style="margin-top: 20px; display: flex; gap: 10px; align-items: center;">
+    <div style="flex: 1;">
+        <label for="startDate">Fecha Inicial:</label>
+        <input type="date" id="startDate" style="width: 100%;" onchange="aggregateSales()">
+    </div>
+    <div style="flex: 1;">
+        <label for="endDate">Fecha Final:</label>
+        <input type="date" id="endDate" style="width: 100%;" onchange="aggregateSales()">
+    </div>
+</div>
+        <button onclick="downloadData()">Descargar Historial y Gráfica</button>
+
         <h2>Nueva Venta</h2>
         <label for="saleName">Nombre del Arreglo:</label>
         <input type="text" id="saleName" placeholder="Ingresa el nombre del arreglo">
@@ -72,7 +121,7 @@
         <input type="number" id="salePrice" placeholder="Ingresa el precio del arreglo">
 
         <label for="saleDate">Fecha:</label>
-        <input type="date" id="saleDate">
+        <input type="date" id="saleDate" value="">
 
         <button onclick="addSale()">Agregar Venta</button>
 
@@ -94,61 +143,178 @@
     </div>
 
     <script>
-        const scriptURL = 'https://script.google.com/macros/s/AKfycbxXh1r4OP2SEXbJkshVVykchLWrI6tjzQjj6exdPVuAqMJflYN53VBvmBs-HzgpNXI-/exec'; // URL de Google Apps Script
-
-        async function fetchSales() {
-            try {
-                const response = await fetch(scriptURL);
-                const data = await response.json();
-                updateSalesHistory(data);
-            } catch (error) {
-                console.error('Error obteniendo datos:', error);
+        const sales = [];
+        let monthlyGoal = 0;
+        let weeklyGoal = 0;
+        let dailyGoal = 0;
+        const ctx = document.getElementById('progressChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Ventas Acumuladas',
+                        data: [],
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        fill: false,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Objetivo Diario',
+                        data: [],
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderDash: [5, 5],
+                        fill: false
+                    },
+                    {
+                        label: 'Objetivo Semanal',
+                        data: [],
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderDash: [5, 5],
+                        fill: false
+                    },
+                    {
+                        label: 'Objetivo Mensual',
+                        data: [],
+                        borderColor: 'rgba(255, 206, 86, 1)',
+                        borderDash: [5, 5],
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
             }
+        });
+
+        function updateObjectivesAndChart() {
+            monthlyGoal = Math.round(parseFloat(document.getElementById('monthlyGoal').value) || 0);
+            weeklyGoal = Math.round(monthlyGoal / 4);
+            dailyGoal = Math.round(weeklyGoal / 5);
+
+            document.getElementById('monthlyGoalDisplay').innerText = `$${monthlyGoal.toLocaleString()}`;
+            document.getElementById('weeklyGoal').innerText = `$${weeklyGoal.toLocaleString()}`;
+            document.getElementById('dailyGoal').innerText = `$${dailyGoal.toLocaleString()}`;
+
+            updateProgress();
+            updateChartObjectives();
         }
 
-        async function addSale() {
+        function updateProgress() {
+    const totalSales = sales.reduce((sum, sale) => sum + sale.price, 0);
+
+    document.getElementById('monthlyProgress').innerText = `$${totalSales.toLocaleString()}`;
+    document.getElementById('monthlyPercentage').innerText = `${((totalSales / monthlyGoal) * 100).toFixed(2)}%`;
+
+    const weeklyProgress = Math.min(totalSales, weeklyGoal);
+    document.getElementById('weeklyProgress').innerText = `$${weeklyProgress.toLocaleString()}`;
+    document.getElementById('weeklyPercentage').innerText = `${((weeklyProgress / weeklyGoal) * 100).toFixed(2)}%`;
+
+    const today = new Date().toISOString().split('T')[0];
+    const dailyProgress = sales.filter(sale => sale.date === today).reduce((sum, sale) => sum + sale.price, 0);
+    document.getElementById('dailyProgress').innerText = `$${dailyProgress.toLocaleString()}`;
+    document.getElementById('dailyPercentage').innerText = `${((dailyProgress / dailyGoal) * 100).toFixed(2)}%`;
+        }
+
+        function addSale() {
             const saleName = document.getElementById('saleName').value;
             const salePrice = parseFloat(document.getElementById('salePrice').value) || 0;
-            const saleDate = document.getElementById('saleDate').value;
+            const saleDate = document.getElementById('saleDate');
 
-            if (!saleName || salePrice <= 0 || !saleDate) {
-                alert('Por favor, completa todos los campos correctamente.');
-                return;
+            if (!saleDate.value) {
+                const today = new Date().toISOString().split('T')[0];
+                saleDate.value = today;
             }
 
-            const saleData = { fecha: saleDate, nombre: saleName, precio: salePrice };
-            
-            try {
-                await fetch(scriptURL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(saleData)
-                });
-                fetchSales(); // Recargar ventas después de agregar
-            } catch (error) {
-                console.error('Error guardando la venta:', error);
+            if (saleName && salePrice > 0 && saleDate.value) {
+                sales.push({ name: saleName, price: salePrice, date: saleDate.value });
+                updateProgress();
+                aggregateSales();
+                updateHistory();
+            } else {
+                alert('Por favor, completa todos los campos correctamente.');
             }
         }
 
-        function updateSalesHistory(sales) {
+        function aggregateSales() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+
+            const filteredSales = sales.filter(sale => {
+                const saleDate = new Date(sale.date);
+                return (!startDate || saleDate >= new Date(startDate)) && (!endDate || saleDate <= new Date(endDate));
+            });
+
+            const salesByDate = {};
+            filteredSales.forEach(sale => {
+                if (!salesByDate[sale.date]) {
+                    salesByDate[sale.date] = 0;
+                }
+                salesByDate[sale.date] += sale.price;
+            });
+
+            chart.data.labels = Object.keys(salesByDate);
+            chart.data.datasets[0].data = Object.values(salesByDate);
+
+            updateChartObjectives();
+            chart.update();
+        }
+
+        function updateChartObjectives() {
+            const labels = chart.data.labels;
+
+            chart.data.datasets[1].data = labels.map(() => dailyGoal);
+            chart.data.datasets[2].data = labels.map(() => weeklyGoal);
+            chart.data.datasets[3].data = labels.map(() => monthlyGoal);
+
+            chart.update();
+        }
+
+        function updateHistory() {
             const historyTable = document.getElementById('salesHistory');
             historyTable.innerHTML = '';
-            sales.forEach(sale => {
+            sales.forEach((sale, index) => {
                 const row = `<tr>
-                    <td>${sale.fecha}</td>
-                    <td>${sale.nombre}</td>
-                    <td>$${parseFloat(sale.precio).toLocaleString()}</td>
+                    <td contenteditable="true" class="editable" onblur="editSale(${index}, 'date', this.innerText.trim())">${sale.date}</td>
+                    <td contenteditable="true" class="editable" onblur="editSale(${index}, 'name', this.innerText.trim())">${sale.name}</td>
+                    <td contenteditable="true" class="editable" onblur="editSale(${index}, 'price', this.innerText.trim())">$${sale.price.toLocaleString()}</td>
                 </tr>`;
                 historyTable.innerHTML += row;
             });
         }
 
-        function clearHistory() {
-            alert('Para eliminar datos, hazlo directamente en Google Sheets.');
+        function editSale(index, field, value) {
+            if (field === 'price') {
+                value = parseFloat(value.replace(/[^0-9.-]+/g, '')) || 0;
+                sales[index][field] = value;
+            } else {
+                sales[index][field] = value;
+            }
+            updateProgress();
+            aggregateSales();
         }
 
-        document.addEventListener('DOMContentLoaded', fetchSales);
+        
+
+        function clearHistory() {
+            sales.length = 0;
+            updateHistory();
+            chart.data.labels = [];
+            chart.data.datasets.forEach(dataset => {
+                dataset.data = [];
+            });
+            updateProgress();
+            chart.update();
+        }
+
+        document.getElementById('saleDate').value = new Date().toISOString().split('T')[0];
     </script>
 </body>
 </html>
-
